@@ -2,6 +2,8 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdarg.h>
+#include <time.h>
+
 #include <mpi.h>
 
 /*
@@ -112,6 +114,7 @@ int** board_init(int n)
 	}
 
 	// then we shuffle the board to get a random order
+	srand(time(NULL));
 	if (count > 1)
 	{
 		for (i = 0; i < count - 1; i++)
@@ -127,6 +130,21 @@ int** board_init(int n)
 }
 
 
+void print_board(int** board, int row_count, int col_count)
+{
+	int i, j;
+
+	for(i = 0; i < row_count; i++)
+	{
+		for(j = 0; j < col_count; j++)
+		{
+			printf("%d ", board[i][j]);
+		}
+		printf("\n");
+	}
+}
+
+
 int main(int argc, char* argv[])
 {
 	int myid, numProcs;
@@ -135,8 +153,8 @@ int main(int argc, char* argv[])
 	// User defined parameters
 	int n, t, c, max_iters;
 
-	int** full_chessboard; // for master process only
-	int** my_rows; // the rows for current process
+	int** full_chessboard; // for master process only, full_chessboard[row][col]
+	int** my_rows; // the rows for current process, my_rows[row][col]
 
 	int i;
 
@@ -159,6 +177,8 @@ int main(int argc, char* argv[])
 		// and send them to other process(es).
 
 		full_chessboard = board_init(n);
+
+		print_board(full_chessboard, n, n);
 	}
 	else
 	{
