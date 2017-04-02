@@ -280,7 +280,7 @@ void do_red(int** sub_board, int row_count, int col_count)
 
 int main(int argc, char* argv[])
 {
-	int myid, numProcs;
+	int my_id, num_procs, prev_id, next_id;
 	int is_master;
 
 	// User defined parameters
@@ -294,19 +294,21 @@ int main(int argc, char* argv[])
 	MPI_Status status;
 
 	MPI_Init(&argc, &argv);
-	MPI_Comm_size(MPI_COMM_WORLD, &numProcs);
-	MPI_Comm_rank(MPI_COMM_WORLD, &myid);
+	MPI_Comm_size(MPI_COMM_WORLD, &num_procs);
+	MPI_Comm_rank(MPI_COMM_WORLD, &my_id);
 
-	is_master = myid == MASTER_RANK;
+	is_master = my_id == MASTER_RANK;
+	prev_id = is_master ? num_procs - 1 : my_id - 1;
+	next_id = (my_id + 1) % num_procs;
 
 	// First parse arguments
-	if(!parse_argument(is_master, argc, argv, &n, &t, &c, &max_iters))
+	if (!parse_argument(is_master, argc, argv, &n, &t, &c, &max_iters))
 	{
 		goto _exit;
 	}
 
 	// Init some process-related vars
-	row_count = row_count_for_process(numProcs, n, t, myid);
+	row_count = row_count_for_process(num_procs, n, t, my_id);
 	my_rows = create_sub_board(row_count, n);
 
 	// Initialize the chessboard
@@ -321,15 +323,15 @@ int main(int argc, char* argv[])
 		print_board(full_chessboard, n, n, 0);
 
 		// First allocate rows for itself
-		for(i = 0; i < row_count; i++)
+		for (i = 0; i < row_count; i++)
 		{
 			memcpy(my_rows[i], full_chessboard[i], sizeof(int) * n);
 		}
 
 		// Next, send rows to slave processes
-		for(j = 1; j < numProcs; j++)
+		for (j = 1; j < num_procs; j++)
 		{
-			int k = row_count_for_process(numProcs, n, t, j);
+			int k = row_count_for_process(num_procs, n, t, j);
 
 			MPI_Send(full_chessboard[i], k * n, MPI_INT, j, 0, MPI_COMM_WORLD);
 		}
@@ -340,7 +342,7 @@ int main(int argc, char* argv[])
 		MPI_Recv(my_rows[0], row_count * n, MPI_INT, MASTER_RANK, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
 	}
 
-	printf("Chessboard at process %d:\n", myid);
+	printf("Chessboard at process %d:\n", my_id);
 	print_board(my_rows, row_count, n, 1);
 
 	// Now the step starts:
@@ -348,6 +350,12 @@ int main(int argc, char* argv[])
 	// First, move red blocks
 	do_red(my_rows, row_count, n);
 
+	// Then we need to sync with all processes
+	// Thanks for the genious MPI_Sendrecv() so we won't get a dead lock!
+	MPI_Sendrecv(my_rows[0], n, MPI_INT, prev_id, 0, my_rows[row_count], n, MPI_INT, next_id, 0, MPI_COMM_WORLD, &status);
+	MPI_Sendrecv(my_rows[row_count - 1], n, MPI_INT, next_id, 0, my_rows[-1], n, MPI_INT, prev_id, 0, MPI_COMM_WORLD, &status);
+
+	print_board(my_rows, row_count, n, 1);
 
 _exit:
 	MPI_Finalize();
