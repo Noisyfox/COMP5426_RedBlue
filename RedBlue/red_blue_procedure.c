@@ -278,6 +278,35 @@ void do_red(int** sub_board, int row_count, int col_count)
 }
 
 
+void do_blue(int** sub_board, int row_count, int col_count)
+{
+	int i, j;
+
+	for(j = 0; j < col_count; j++)
+	{
+		if(sub_board[-1][j] == BLUE && sub_board[0][j] == WHITE)
+		{
+			sub_board[0][j] = IN;
+		}
+
+		for(i = 0; i < row_count; i++)
+		{
+			int below = i + 1;
+
+			if(sub_board[i][j] == BLUE && sub_board[below][j] == WHITE)
+			{
+				sub_board[i][j] = WHITE;
+				sub_board[below][j] = IN;
+			}
+			else if (sub_board[i][j] == IN)
+			{
+				sub_board[i][j] = BLUE;
+			}
+		}
+	}
+}
+
+
 int main(int argc, char* argv[])
 {
 	int my_id, num_procs, prev_id, next_id;
@@ -343,19 +372,29 @@ int main(int argc, char* argv[])
 	}
 
 	printf("Chessboard at process %d:\n", my_id);
-	print_board(my_rows, row_count, n, 1);
+	print_board(my_rows, row_count, n, 0);
 
 	// Now the step starts:
 
 	// First, move red blocks
 	do_red(my_rows, row_count, n);
 
+	printf("Chessboard at process %d after red move:\n", my_id);
+	print_board(my_rows, row_count, n, 0);
+
 	// Then we need to sync with all processes
 	// Thanks for the genious MPI_Sendrecv() so we won't get a dead lock!
 	MPI_Sendrecv(my_rows[0], n, MPI_INT, prev_id, 0, my_rows[row_count], n, MPI_INT, next_id, 0, MPI_COMM_WORLD, &status);
 	MPI_Sendrecv(my_rows[row_count - 1], n, MPI_INT, next_id, 0, my_rows[-1], n, MPI_INT, prev_id, 0, MPI_COMM_WORLD, &status);
 
+	printf("Chessboard at process %d after row exchange:\n", my_id);
 	print_board(my_rows, row_count, n, 1);
+
+	// Next we move blue blocks
+	do_blue(my_rows, row_count, n);
+
+	printf("Chessboard at process %d after blue move:\n", my_id);
+	print_board(my_rows, row_count, n, 0);
 
 _exit:
 	MPI_Finalize();
