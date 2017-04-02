@@ -20,6 +20,7 @@ red or blue (in the first row or column) just moved out = 4
 #define OUT 4
 
 #define MASTER_RANK 0
+#define SLAVE_FIRST_RANK 1
 
 #define RESULT_COUNT(r) ((r)[0])
 #define RESULT_INDEX(r, i) ((r)[(i) * 2 + 1])
@@ -29,6 +30,8 @@ red or blue (in the first row or column) just moved out = 4
 
 #define SYNC_OK 0
 #define SYNC_STOP 1
+
+#define iter_slave(i, n) for(i = SLAVE_FIRST_RANK; i < n; i++)
 
 
 void print_usage(char const* const message, ...)
@@ -465,7 +468,7 @@ int main(int argc, char* argv[])
 		}
 
 		// Next, send rows to slave processes
-		for (j = 1; j < num_procs; j++)
+		iter_slave(j, num_procs)
 		{
 			int k = row_count_for_process(num_procs, n, t, j);
 
@@ -515,7 +518,7 @@ int main(int argc, char* argv[])
 			merge_result(tiles_finish, &full_result, max_tile_count);
 
 			// Read result of this round from slaves
-			for (i = 1; i < num_procs; i++)
+			iter_slave(i, num_procs)
 			{
 				MPI_Recv(slave_result, RESULT_REQUIRED_LENGTH(max_tile_count_in_process), MPI_INT, i, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
 
