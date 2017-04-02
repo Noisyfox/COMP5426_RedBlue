@@ -2,7 +2,6 @@
 The Red/Blue computation for COMP5426
 
 # Assignment description
-
 **The Red/Blue computation** simulates two interactive flows: an n by n board is initialized so cells
 have one of three colors: red, white, and blue, where white is empty, red moves right, and blue
 moves down. (The board may be initialized with roughly 1/3 cells in read, 1/3 in white and 1/3 in
@@ -29,3 +28,9 @@ tile grid size *t*, terminating threshold *c*, and maximum number of iterations 
 more than *c%* one color (blue or red).
 - After the parallel computation, you main program must conduct a self-checking, i.e., first
 perform a sequential computation using the same data set and then compare the two results.
+
+# Compile on Windows
+1. Download & install MS-MPI from [here](http://go.microsoft.com/FWLink/p/?LinkID=389556).
+(Install *MSMpiSetup.exe* only as we use Nuget to install the MSMPISDK)
+2. Open *RedBlue.sln* in Visual Studio 2017 and compile.
+3. To compile with Visual Studio 2015 you may need to change the platform toolset.
