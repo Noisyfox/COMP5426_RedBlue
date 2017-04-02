@@ -383,7 +383,7 @@ int main(int argc, char* argv[])
 	print_board(my_rows, row_count, n, 0);
 
 	// Then we need to sync with all processes
-	// Thanks for the genious MPI_Sendrecv() so we won't get a dead lock!
+	// Thanks for the genius MPI_Sendrecv() so we won't get a dead lock!
 	MPI_Sendrecv(my_rows[0], n, MPI_INT, prev_id, 0, my_rows[row_count], n, MPI_INT, next_id, 0, MPI_COMM_WORLD, &status);
 	MPI_Sendrecv(my_rows[row_count - 1], n, MPI_INT, next_id, 0, my_rows[-1], n, MPI_INT, prev_id, 0, MPI_COMM_WORLD, &status);
 
