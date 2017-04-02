@@ -130,18 +130,111 @@ int** board_init(int n)
 }
 
 
-void print_board(int** board, int row_count, int col_count)
+/*
+ * Create sub chessboard with two extra rows
+ * with following structure:
+ * 
+ * -----------------------------------------
+ * |          | 0 | 1 | 2 | ... | cols - 1 |
+ * |----------+---+---+---+-----+----------|
+ * |-1        | last row from prev process |
+ * |----------+----------------------------|
+ * | 0        |                            |
+ * |----------+                            |
+ * | 1        |                            |
+ * |----------+                            |
+ * | ...      |  rows for current process  |
+ * |----------+                            |
+ * | rows - 2 |                            |
+ * |----------+                            |
+ * | rows - 1 |                            |
+ * |----------+----------------------------|
+ * | rows     |first row from prev process |
+ * -----------------------------------------
+ */
+int** create_sub_board(int rows, int cols)
+{
+	int count = (rows + 2) * cols;
+	int* board_flat = malloc(sizeof(int) * count);
+	int** board = malloc(sizeof(int*) * (rows + 2));
+	int i;
+
+	memset(board_flat, 0, sizeof(int) * count);
+
+	// build 2d-array
+	board[0] = board_flat;
+	for (i = 1; i < rows + 2; i++)
+	{
+		board[i] = &board_flat[i * cols];
+	}
+
+	return &board[1];
+}
+
+
+void print_board(int** board, int row_count, int col_count, int include_overflow)
 {
 	int i, j;
+	
+	if(include_overflow)
+	{
+		for (j = 0; j < col_count; j++)
+		{
+			printf(" %d ", board[-1][j]);
+		}
+		printf("\n");
+
+		for (j = 0; j < col_count; j++)
+		{
+			printf("---");
+		}
+		printf("\n");
+	}
 
 	for(i = 0; i < row_count; i++)
 	{
 		for(j = 0; j < col_count; j++)
 		{
-			printf("%d ", board[i][j]);
+			printf(" %d ", board[i][j]);
 		}
 		printf("\n");
 	}
+
+	if (include_overflow)
+	{
+		for (j = 0; j < col_count; j++)
+		{
+			printf("---");
+		}
+		printf("\n");
+
+		for (j = 0; j < col_count; j++)
+		{
+			printf(" %d ", board[row_count][j]);
+		}
+		printf("\n");
+	}
+	printf("\n");
+}
+
+
+/*
+ * Calculate how may rows should process X takes
+ */
+int row_count_for_process(int process_count, int row_count, int tile_row, int current_id)
+{
+	int tile_count = row_count / tile_row;
+	int remain = tile_count % process_count;
+	int base = tile_count / process_count;
+
+	int row = base * tile_row;
+
+	if(current_id < remain)
+	{
+		row += tile_count;
+	}
+
+	return row;
 }
 
 
@@ -155,8 +248,10 @@ int main(int argc, char* argv[])
 
 	int** full_chessboard; // for master process only, full_chessboard[row][col]
 	int** my_rows; // the rows for current process, my_rows[row][col]
+	int row_count; // row count for current process
 
-	int i;
+	int i, j;
+	MPI_Status status;
 
 	MPI_Init(&argc, &argv);
 	MPI_Comm_size(MPI_COMM_WORLD, &numProcs);
@@ -170,6 +265,10 @@ int main(int argc, char* argv[])
 		goto _exit;
 	}
 
+	// Init some process-related vars
+	row_count = row_count_for_process(numProcs, n, t, myid);
+	my_rows = create_sub_board(row_count, n);
+
 	// Initialize the chessboard
 	if (is_master)
 	{
@@ -178,12 +277,31 @@ int main(int argc, char* argv[])
 
 		full_chessboard = board_init(n);
 
-		print_board(full_chessboard, n, n);
+		printf("Original chessboard:\n");
+		print_board(full_chessboard, n, n, 0);
+
+		// First allocate rows for itself
+		for(i = 0; i < row_count; i++)
+		{
+			memcpy(my_rows[i], full_chessboard[i], sizeof(int) * n);
+		}
+
+		// Next, send rows to slave processes
+		for(j = 1; j < numProcs; j++)
+		{
+			int k = row_count_for_process(numProcs, n, t, j);
+
+			MPI_Send(full_chessboard[i], k * n, MPI_INT, j, 0, MPI_COMM_WORLD);
+		}
 	}
 	else
 	{
 		// Slave processes receive rows from master process.
+		MPI_Recv(my_rows[0], row_count * n, MPI_INT, MASTER_RANK, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
 	}
+
+	printf("Chessboard at process %d:\n", myid);
+	print_board(my_rows, row_count, n, 1);
 
 _exit:
 	MPI_Finalize();
