@@ -15,6 +15,8 @@ red or blue (in the first row or column) just moved out = 4
 #define WHITE 0
 #define RED 1
 #define BLUE 2
+#define IN 3
+#define OUT 4
 
 #define MASTER_RANK 0
 
@@ -238,6 +240,44 @@ int row_count_for_process(int process_count, int row_count, int tile_row, int cu
 }
 
 
+void do_red(int** sub_board, int row_count, int col_count)
+{
+	int i, j;
+
+	for (i = 0; i < row_count; i++)
+	{
+		if (sub_board[i][0] == RED && sub_board[i][1] == WHITE)
+		{
+			sub_board[i][0] = OUT;
+			sub_board[i][1] = IN;
+		}
+
+		for (j = 1; j < col_count; j++)
+		{
+			int right = (j + 1) % col_count;
+
+			if (sub_board[i][j] == RED && sub_board[i][right] == WHITE)
+			{
+				sub_board[i][j] = WHITE;
+				sub_board[i][right] = IN;
+			}
+			else if (sub_board[i][j] == IN)
+			{
+				sub_board[i][j] = RED;
+			}
+		}
+		if (sub_board[i][0] == IN)
+		{
+			sub_board[i][0] = RED;
+		}
+		else if (sub_board[i][0] == OUT)
+		{
+			sub_board[i][0] = WHITE;
+		}
+	}
+}
+
+
 int main(int argc, char* argv[])
 {
 	int myid, numProcs;
@@ -302,6 +342,12 @@ int main(int argc, char* argv[])
 
 	printf("Chessboard at process %d:\n", myid);
 	print_board(my_rows, row_count, n, 1);
+
+	// Now the step starts:
+
+	// First, move red blocks
+	do_red(my_rows, row_count, n);
+
 
 _exit:
 	MPI_Finalize();
