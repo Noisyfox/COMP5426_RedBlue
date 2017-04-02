@@ -429,6 +429,30 @@ void print_result(int* result)
 }
 
 
+void sequential_computation(int** board_orig, int n, int t, int c, int max_iters)
+{
+	int** board = create_sub_board(n, n);
+	int iter_count = 0;
+	int* result = RESULT_EMPTY;
+
+	memcpy(board[0], board_orig[0], sizeof(int) * n * n);
+
+	while(iter_count++ <= max_iters && RESULT_COUNT(result) <= 0)
+	{
+		do_red(board, n, n);
+
+		memcpy(board[-1], board[n - 1], sizeof(int) * n);
+		memcpy(board[n], board[0], sizeof(int) * n);
+
+		do_blue(board, n, n);
+
+		result = count_tiles(board, n, n, t, c);
+	}
+
+	print_result(result);
+}
+
+
 int main(int argc, char* argv[])
 {
 	int my_id, num_procs, prev_id, next_id;
@@ -518,7 +542,7 @@ int main(int argc, char* argv[])
 	print_board(my_rows, row_count, n, 0);
 
 	// Now the step starts:
-	while (iter_count++ < max_iters)
+	while (iter_count++ <= max_iters)
 	{
 		int* tiles_finish;
 
@@ -594,13 +618,17 @@ int main(int argc, char* argv[])
 		}
 	}
 
+	MPI_Barrier(MPI_COMM_WORLD);
+
 	if (is_master)
 	{
 		print_result(full_result);
+
+		// perform a sequential computation
+		sequential_computation(full_chessboard, n, t, max_color_count, max_iters);
 	}
 
 _exit:
-	MPI_Barrier(MPI_COMM_WORLD);
 	MPI_Finalize();
 	return 0;
 }
