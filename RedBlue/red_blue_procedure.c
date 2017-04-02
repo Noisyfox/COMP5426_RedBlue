@@ -22,6 +22,9 @@ red or blue (in the first row or column) just moved out = 4
 #define MASTER_RANK 0
 #define SLAVE_FIRST_RANK 1
 
+
+int empty_result = 0;
+#define RESULT_EMPTY (&empty_result)
 #define RESULT_COUNT(r) ((r)[0])
 #define RESULT_INDEX(r, i) ((r)[(i) * 2 + 1])
 #define RESULT_COLOR(r, i) ((r)[(i) * 2 + 1 + 1])
@@ -321,7 +324,7 @@ void do_blue(int** sub_board, int row_count, int col_count)
 
 
 /*
- * If return != NULL, then the first element of the return value is the tile count N,
+ * The first element of the return value is the tile count N,
  * then the following N elements are the tile (index, color) pair.
  */
 int* count_tiles(int** sub_board, int row_count, int col_count, int tile_row, int c)
@@ -329,7 +332,7 @@ int* count_tiles(int** sub_board, int row_count, int col_count, int tile_row, in
 	int i, j, k, l;
 	int tile_index = 0;
 	int max_tile_count = row_count * col_count / tile_row / tile_row;
-	int* re = NULL;
+	int* re = RESULT_EMPTY;
 
 	for (i = 0; i < row_count; i += tile_row)
 	{
@@ -358,7 +361,7 @@ int* count_tiles(int** sub_board, int row_count, int col_count, int tile_row, in
 
 			if (color != WHITE)
 			{
-				if (re == NULL)
+				if (re == RESULT_EMPTY)
 				{
 					re = malloc(RESULT_REQUIRED_LENGTH(max_tile_count) * sizeof(int));
 					RESULT_COUNT(re) = 0;
@@ -377,26 +380,52 @@ int* count_tiles(int** sub_board, int row_count, int col_count, int tile_row, in
 }
 
 
-void merge_result(int* current_result, int** full_result, int max_tile_count)
+void merge_result(int* current_result, int offset, int* full_result)
 {
 	int* re;
+	int i;
 
-	if (current_result == NULL)
+	if (RESULT_COUNT(current_result) <= 0)
 	{
 		return;
 	}
 
-	if (*full_result == NULL)
+	for(i = 0; i < RESULT_COUNT(current_result); i++)
 	{
-		*full_result = malloc(sizeof(int) * RESULT_REQUIRED_LENGTH(max_tile_count));
-		RESULT_COUNT(*full_result) = 0;
+		RESULT_INDEX(full_result, RESULT_COUNT(full_result)) = RESULT_INDEX(current_result, i) + offset;
+		RESULT_COLOR(full_result, RESULT_COUNT(full_result)) = RESULT_COLOR(current_result, i);
+		RESULT_COUNT(full_result)++;
 	}
+}
 
-	re = *full_result;
 
-	memcpy(&RESULT_INDEX(re, RESULT_COUNT(re)), &RESULT_INDEX(current_result, 0), sizeof(int) * RESULT_COUNT(current_result) * 2);
+void print_result(int* result)
+{
+	int i;
 
-	RESULT_COUNT(re) += RESULT_COUNT(current_result);
+	if (RESULT_COUNT(result) > 0)
+	{
+		printf("Found %d tile(s):\n", RESULT_COUNT(result));
+		for (i = 0; i < RESULT_COUNT(result); i++)
+		{
+			switch (RESULT_COLOR(result, i))
+			{
+			case RED:
+				printf("Tile No.%d, color: red\n", RESULT_INDEX(result, i));
+				break;
+			case BLUE:
+				printf("Tile No.%d, color: blue\n", RESULT_INDEX(result, i));
+				break;
+			case BOTH:
+				printf("Tile No.%d, color: red & blue\n", RESULT_INDEX(result, i));
+				break;
+			}
+		}
+	}
+	else
+	{
+		printf("max_iters exceed! No result found!\n");
+	}
 }
 
 
@@ -414,10 +443,9 @@ int main(int argc, char* argv[])
 	int** my_rows; // the rows for current process, my_rows[row][col]
 	int row_count; // row count for current process
 
-	int max_tile_count;
 	int max_tile_count_in_process;
-	int* slave_result = NULL; // the result from slave for one single round
-	int* full_result = NULL; // the result from all processes (include itself) for one single round
+	int* slave_result = RESULT_EMPTY; // the result from slave for one single round
+	int* full_result = RESULT_EMPTY; // the result from all processes (include itself) for one single round
 
 	int i, j;
 	int iter_count = 0;
@@ -437,13 +465,16 @@ int main(int argc, char* argv[])
 		goto _exit;
 	}
 
+#define tile_count(process) row_count_for_process((num_procs), n, t, process) * n / t / t
+
 	max_color_count = (int)(t * t * c / 100.0f + 0.5f);
-	max_tile_count = n * n / t / t;
-	max_tile_count_in_process = row_count_for_process(num_procs, n, t, MASTER_RANK) * n / t / t;
+	max_tile_count_in_process = tile_count(MASTER_RANK);
 
 	if (is_master)
 	{
 		slave_result = malloc(sizeof(int) * RESULT_REQUIRED_LENGTH(max_tile_count_in_process));
+		full_result = malloc(sizeof(int) * RESULT_REQUIRED_LENGTH(n * n / t / t));
+		RESULT_COUNT(full_result) = 0;
 	}
 
 	// Init some process-related vars
@@ -515,18 +546,22 @@ int main(int argc, char* argv[])
 		if (is_master)
 		{
 			int final_result = SYNC_OK;
-			merge_result(tiles_finish, &full_result, max_tile_count);
+			int index_offset = 0;
+			merge_result(tiles_finish, index_offset, full_result);
+			index_offset += tile_count(MASTER_RANK);
 
 			// Read result of this round from slaves
 			iter_slave(i, num_procs)
 			{
 				MPI_Recv(slave_result, RESULT_REQUIRED_LENGTH(max_tile_count_in_process), MPI_INT, i, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
 
-				merge_result(slave_result, &full_result, max_tile_count);
+				merge_result(slave_result, index_offset, full_result);
+
+				index_offset += tile_count(i);
 			}
 
 			// Notify slaves if they need to exit
-			if (full_result != NULL && RESULT_COUNT(full_result) > 0)
+			if (RESULT_COUNT(full_result) > 0)
 			{
 				// Got result! Exit guys!
 				final_result = SYNC_STOP;
@@ -544,15 +579,7 @@ int main(int argc, char* argv[])
 			int round_notify;
 
 			// Send result of this round to master
-			if (tiles_finish == NULL)
-			{
-				int tmp = 0;
-				MPI_Send(&tmp, 1, MPI_INT, MASTER_RANK, 0, MPI_COMM_WORLD);
-			}
-			else
-			{
-				MPI_Send(tiles_finish, RESULT_LENGTH(tiles_finish), MPI_INT, MASTER_RANK, 0, MPI_COMM_WORLD);
-			}
+			MPI_Send(tiles_finish, RESULT_LENGTH(tiles_finish), MPI_INT, MASTER_RANK, 0, MPI_COMM_WORLD);
 
 			// Wait for notify from master
 			MPI_Bcast(&round_notify, 1, MPI_INT, MASTER_RANK, MPI_COMM_WORLD);
@@ -565,9 +592,9 @@ int main(int argc, char* argv[])
 		}
 	}
 
-	if (is_master && full_result != NULL && RESULT_COUNT(full_result) > 0)
+	if (is_master)
 	{
-		// TODO: print result
+		print_result(full_result);
 	}
 
 _exit:
