@@ -15,10 +15,20 @@ red or blue (in the first row or column) just moved out = 4
 #define WHITE 0
 #define RED 1
 #define BLUE 2
+#define BOTH (RED | BLUE)
 #define IN 3
 #define OUT 4
 
 #define MASTER_RANK 0
+
+#define RESULT_COUNT(r) ((r)[0])
+#define RESULT_INDEX(r, i) ((r)[(i) * 2 + 1])
+#define RESULT_COLOR(r, i) ((r)[(i) * 2 + 1 + 1])
+#define RESULT_REQUIRED_LENGTH(count) ((count) * 2 + 1)
+#define RESULT_LENGTH(r) RESULT_REQUIRED_LENGTH(RESULT_COUNT(r))
+
+#define SYNC_OK 0
+#define SYNC_STOP 1
 
 
 void print_usage(char const* const message, ...)
@@ -33,7 +43,7 @@ void print_usage(char const* const message, ...)
 	// TODO: print usage
 }
 
-int parse_argument(int is_master, int argc, char* argv[], int* n, int* t, int* c, int* max_iters)
+int parse_argument(int is_master, int argc, char* argv[], int* n, int* t, float* c, int* max_iters)
 {
 	int i;
 	int flags[4] = {0,0,0,0};
@@ -58,7 +68,7 @@ int parse_argument(int is_master, int argc, char* argv[], int* n, int* t, int* c
 		}
 		else if (strcmp(argv[i], "-c") == 0)
 		{
-			*c = atoi(argv[i + 1]);
+			*c = (float)atof(argv[i + 1]);
 			flags[2] = 1;
 		}
 		else if (strcmp(argv[i], "-max_iters") == 0)
@@ -108,7 +118,7 @@ int** board_init(int n)
 	}
 
 	// init board
-	for(i = 0; i < count; i++)
+	for (i = 0; i < count; i++)
 	{
 		// after that the board will be filled as 0 1 2 0 1 2 0 1 2 ...
 		// so is roughly 1/3 cells in read, 1/3 in white and 1/3 in blue
@@ -177,8 +187,8 @@ int** create_sub_board(int rows, int cols)
 void print_board(int** board, int row_count, int col_count, int include_overflow)
 {
 	int i, j;
-	
-	if(include_overflow)
+
+	if (include_overflow)
 	{
 		for (j = 0; j < col_count; j++)
 		{
@@ -193,9 +203,9 @@ void print_board(int** board, int row_count, int col_count, int include_overflow
 		printf("\n");
 	}
 
-	for(i = 0; i < row_count; i++)
+	for (i = 0; i < row_count; i++)
 	{
-		for(j = 0; j < col_count; j++)
+		for (j = 0; j < col_count; j++)
 		{
 			printf(" %d ", board[i][j]);
 		}
@@ -231,7 +241,7 @@ int row_count_for_process(int process_count, int row_count, int tile_row, int cu
 
 	int row = base * tile_row;
 
-	if(current_id < remain)
+	if (current_id < remain)
 	{
 		row += tile_count;
 	}
@@ -282,18 +292,18 @@ void do_blue(int** sub_board, int row_count, int col_count)
 {
 	int i, j;
 
-	for(j = 0; j < col_count; j++)
+	for (j = 0; j < col_count; j++)
 	{
-		if(sub_board[-1][j] == BLUE && sub_board[0][j] == WHITE)
+		if (sub_board[-1][j] == BLUE && sub_board[0][j] == WHITE)
 		{
 			sub_board[0][j] = IN;
 		}
 
-		for(i = 0; i < row_count; i++)
+		for (i = 0; i < row_count; i++)
 		{
 			int below = i + 1;
 
-			if(sub_board[i][j] == BLUE && sub_board[below][j] == WHITE)
+			if (sub_board[i][j] == BLUE && sub_board[below][j] == WHITE)
 			{
 				sub_board[i][j] = WHITE;
 				sub_board[below][j] = IN;
@@ -307,19 +317,107 @@ void do_blue(int** sub_board, int row_count, int col_count)
 }
 
 
+/*
+ * If return != NULL, then the first element of the return value is the tile count N,
+ * then the following N elements are the tile (index, color) pair.
+ */
+int* count_tiles(int** sub_board, int row_count, int col_count, int tile_row, int c)
+{
+	int i, j, k, l;
+	int tile_index = 0;
+	int max_tile_count = row_count * col_count / tile_row / tile_row;
+	int* re = NULL;
+
+	for (i = 0; i < row_count; i += tile_row)
+	{
+		for (j = 0; j < col_count; j += tile_row)
+		{
+			int red = 0, blue = 0;
+			int color;
+
+			for (k = 0; k < tile_row; k++)
+			{
+				for (l = 0; l < tile_row; l++)
+				{
+					switch (sub_board[i + k][j + l])
+					{
+					case RED:
+						red++;
+						break;
+					case BLUE:
+						blue++;
+						break;
+					}
+				}
+			}
+
+			color = (red >= c ? RED : WHITE) | (blue >= c ? BLUE : WHITE);
+
+			if (color != WHITE)
+			{
+				if (re == NULL)
+				{
+					re = malloc(RESULT_REQUIRED_LENGTH(max_tile_count) * sizeof(int));
+					RESULT_COUNT(re) = 0;
+				}
+
+				RESULT_INDEX(re, RESULT_COUNT(re)) = tile_index;
+				RESULT_COLOR(re, RESULT_COUNT(re)) = color;
+				RESULT_COUNT(re)++;
+			}
+
+			tile_index++;
+		}
+	}
+
+	return re;
+}
+
+
+void merge_result(int* current_result, int** full_result, int max_tile_count)
+{
+	int* re;
+
+	if (current_result == NULL)
+	{
+		return;
+	}
+
+	if (*full_result == NULL)
+	{
+		*full_result = malloc(sizeof(int) * RESULT_REQUIRED_LENGTH(max_tile_count));
+		RESULT_COUNT(*full_result) = 0;
+	}
+
+	re = *full_result;
+
+	memcpy(&RESULT_INDEX(re, RESULT_COUNT(re)), &RESULT_INDEX(current_result, 0), sizeof(int) * RESULT_COUNT(current_result) * 2);
+
+	RESULT_COUNT(re) += RESULT_COUNT(current_result);
+}
+
+
 int main(int argc, char* argv[])
 {
 	int my_id, num_procs, prev_id, next_id;
 	int is_master;
 
 	// User defined parameters
-	int n, t, c, max_iters;
+	int n, t, max_iters;
+	float c;
+	int max_color_count;
 
 	int** full_chessboard; // for master process only, full_chessboard[row][col]
 	int** my_rows; // the rows for current process, my_rows[row][col]
 	int row_count; // row count for current process
 
+	int max_tile_count;
+	int max_tile_count_in_process;
+	int* slave_result = NULL; // the result from slave for one single round
+	int* full_result = NULL; // the result from all processes (include itself) for one single round
+
 	int i, j;
+	int iter_count = 0;
 	MPI_Status status;
 
 	MPI_Init(&argc, &argv);
@@ -334,6 +432,15 @@ int main(int argc, char* argv[])
 	if (!parse_argument(is_master, argc, argv, &n, &t, &c, &max_iters))
 	{
 		goto _exit;
+	}
+
+	max_color_count = (int)(t * t * c / 100.0f + 0.5f);
+	max_tile_count = n * n / t / t;
+	max_tile_count_in_process = row_count_for_process(num_procs, n, t, MASTER_RANK) * n / t / t;
+
+	if (is_master)
+	{
+		slave_result = malloc(sizeof(int) * RESULT_REQUIRED_LENGTH(max_tile_count_in_process));
 	}
 
 	// Init some process-related vars
@@ -375,28 +482,93 @@ int main(int argc, char* argv[])
 	print_board(my_rows, row_count, n, 0);
 
 	// Now the step starts:
+	while (iter_count++ < max_iters)
+	{
+		int* tiles_finish;
 
-	// First, move red blocks
-	do_red(my_rows, row_count, n);
+		// First, move red blocks
+		do_red(my_rows, row_count, n);
 
-	printf("Chessboard at process %d after red move:\n", my_id);
-	print_board(my_rows, row_count, n, 0);
+		printf("Chessboard at process %d after red move:\n", my_id);
+		print_board(my_rows, row_count, n, 0);
 
-	// Then we need to sync with all processes
-	// Thanks for the genius MPI_Sendrecv() so we won't get a dead lock!
-	MPI_Sendrecv(my_rows[0], n, MPI_INT, prev_id, 0, my_rows[row_count], n, MPI_INT, next_id, 0, MPI_COMM_WORLD, &status);
-	MPI_Sendrecv(my_rows[row_count - 1], n, MPI_INT, next_id, 0, my_rows[-1], n, MPI_INT, prev_id, 0, MPI_COMM_WORLD, &status);
+		// Then we need to sync with all processes
+		// Thanks to the genius MPI_Sendrecv() so we won't get a dead lock!
+		MPI_Sendrecv(my_rows[0], n, MPI_INT, prev_id, 0, my_rows[row_count], n, MPI_INT, next_id, 0, MPI_COMM_WORLD, &status);
+		MPI_Sendrecv(my_rows[row_count - 1], n, MPI_INT, next_id, 0, my_rows[-1], n, MPI_INT, prev_id, 0, MPI_COMM_WORLD, &status);
 
-	printf("Chessboard at process %d after row exchange:\n", my_id);
-	print_board(my_rows, row_count, n, 1);
+		printf("Chessboard at process %d after row exchange:\n", my_id);
+		print_board(my_rows, row_count, n, 1);
 
-	// Next we move blue blocks
-	do_blue(my_rows, row_count, n);
+		// Next we move blue blocks
+		do_blue(my_rows, row_count, n);
 
-	printf("Chessboard at process %d after blue move:\n", my_id);
-	print_board(my_rows, row_count, n, 0);
+		printf("Chessboard at process %d after blue move:\n", my_id);
+		print_board(my_rows, row_count, n, 0);
+
+		// Count the number of red and blue in each tile and check if the computation can be terminated
+		tiles_finish = count_tiles(my_rows, row_count, n, t, max_color_count);
+
+		if (is_master)
+		{
+			int final_result = SYNC_OK;
+			merge_result(tiles_finish, &full_result, max_tile_count);
+
+			// Read result of this round from slaves
+			for (i = 1; i < num_procs; i++)
+			{
+				MPI_Recv(slave_result, RESULT_REQUIRED_LENGTH(max_tile_count_in_process), MPI_INT, i, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+
+				merge_result(slave_result, &full_result, max_tile_count);
+			}
+
+			// Notify slaves if they need to exit
+			if (full_result != NULL && RESULT_COUNT(full_result) > 0)
+			{
+				// Got result! Exit guys!
+				final_result = SYNC_STOP;
+			}
+
+			MPI_Bcast(&final_result, 1, MPI_INT, MASTER_RANK, MPI_COMM_WORLD);
+
+			if (final_result == SYNC_STOP)
+			{
+				break;
+			}
+		}
+		else
+		{
+			int round_notify;
+
+			// Send result of this round to master
+			if (tiles_finish == NULL)
+			{
+				int tmp = 0;
+				MPI_Send(&tmp, 1, MPI_INT, MASTER_RANK, 0, MPI_COMM_WORLD);
+			}
+			else
+			{
+				MPI_Send(tiles_finish, RESULT_LENGTH(tiles_finish), MPI_INT, MASTER_RANK, 0, MPI_COMM_WORLD);
+			}
+
+			// Wait for notify from master
+			MPI_Bcast(&round_notify, 1, MPI_INT, MASTER_RANK, MPI_COMM_WORLD);
+
+			if (round_notify == SYNC_STOP)
+			{
+				// master told you to stop!
+				break;
+			}
+		}
+	}
+
+	if (is_master && full_result != NULL && RESULT_COUNT(full_result) > 0)
+	{
+		// TODO: print result
+	}
 
 _exit:
+	MPI_Barrier(MPI_COMM_WORLD);
 	MPI_Finalize();
 	return 0;
 }
