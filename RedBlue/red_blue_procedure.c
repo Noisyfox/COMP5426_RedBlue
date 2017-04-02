@@ -504,6 +504,8 @@ int main(int argc, char* argv[])
 			int k = row_count_for_process(num_procs, n, t, j);
 
 			MPI_Send(full_chessboard[i], k * n, MPI_INT, j, 0, MPI_COMM_WORLD);
+
+			i += k;
 		}
 	}
 	else
