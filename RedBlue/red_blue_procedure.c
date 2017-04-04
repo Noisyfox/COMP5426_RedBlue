@@ -46,6 +46,8 @@ void print_usage(char const* const message, ...)
 
 	va_end(arg_ptr);
 
+	printf("\n");
+
 	// TODO: print usage
 }
 
