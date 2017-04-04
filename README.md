@@ -36,5 +36,7 @@ perform a sequential computation using the same data set and then compare the tw
 3. To compile with Visual Studio 2015 you may need to change the platform toolset.
 
 # Compile on lab computer
-1. > make
+1. ```bash
+make
+```
 2. Done!
