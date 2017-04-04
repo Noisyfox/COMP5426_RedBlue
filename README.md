@@ -34,3 +34,7 @@ perform a sequential computation using the same data set and then compare the tw
 (Install *MSMpiSetup.exe* only as we use Nuget to install the MSMPISDK)
 2. Open *RedBlue.sln* in Visual Studio 2017 and compile.
 3. To compile with Visual Studio 2015 you may need to change the platform toolset.
+
+# Compile on lab computer
+1. > make
+2. Done!
