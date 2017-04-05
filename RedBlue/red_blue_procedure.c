@@ -16,7 +16,6 @@ red or blue (in the first row or column) just moved out = 4
 #define WHITE 0
 #define RED 1
 #define BLUE 2
-#define BOTH (RED | BLUE)
 #define IN 3
 #define OUT 4
 
@@ -25,11 +24,14 @@ red or blue (in the first row or column) just moved out = 4
 
 
 int empty_result = 0;
+#define RESULT_UNIT_LEN 3
 #define RESULT_EMPTY (&empty_result)
 #define RESULT_COUNT(r) ((r)[0])
-#define RESULT_INDEX(r, i) ((r)[(i) * 2 + 1])
-#define RESULT_COLOR(r, i) ((r)[(i) * 2 + 1 + 1])
-#define RESULT_REQUIRED_LENGTH(count) ((count) * 2 + 1)
+#define RESULT_INDEX(r, i) ((r)[(i) * RESULT_UNIT_LEN + 1])
+#define RESULT_NOT_ENOUGH -1
+#define RESULT_RED(r, i) ((r)[(i) * RESULT_UNIT_LEN + 1 + 1])
+#define RESULT_BLUE(r, i) ((r)[(i) * RESULT_UNIT_LEN + 1 + 2])
+#define RESULT_REQUIRED_LENGTH(count) ((count) * RESULT_UNIT_LEN + 1)
 #define RESULT_LENGTH(r) RESULT_REQUIRED_LENGTH(RESULT_COUNT(r))
 
 #define SYNC_OK 0
@@ -342,7 +344,6 @@ int* count_tiles(int** sub_board, int row_count, int col_count, int tile_row, in
 		for (j = 0; j < col_count; j += tile_row)
 		{
 			int red = 0, blue = 0;
-			int color;
 
 			for (k = 0; k < tile_row; k++)
 			{
@@ -360,9 +361,17 @@ int* count_tiles(int** sub_board, int row_count, int col_count, int tile_row, in
 				}
 			}
 
-			color = (red >= c ? RED : WHITE) | (blue >= c ? BLUE : WHITE);
+			if(red < c)
+			{
+				red = RESULT_NOT_ENOUGH;
+			}
 
-			if (color != WHITE)
+			if(blue < c)
+			{
+				blue = RESULT_NOT_ENOUGH;
+			}
+
+			if (red != RESULT_NOT_ENOUGH || blue != RESULT_NOT_ENOUGH)
 			{
 				if (re == RESULT_EMPTY)
 				{
@@ -371,7 +380,8 @@ int* count_tiles(int** sub_board, int row_count, int col_count, int tile_row, in
 				}
 
 				RESULT_INDEX(re, RESULT_COUNT(re)) = tile_index;
-				RESULT_COLOR(re, RESULT_COUNT(re)) = color;
+				RESULT_RED(re, RESULT_COUNT(re)) = red;
+				RESULT_BLUE(re, RESULT_COUNT(re)) = blue;
 				RESULT_COUNT(re)++;
 			}
 
@@ -396,33 +406,34 @@ void merge_result(int* current_result, int offset, int* full_result)
 	for(i = 0; i < RESULT_COUNT(current_result); i++)
 	{
 		RESULT_INDEX(full_result, RESULT_COUNT(full_result)) = RESULT_INDEX(current_result, i) + offset;
-		RESULT_COLOR(full_result, RESULT_COUNT(full_result)) = RESULT_COLOR(current_result, i);
+		RESULT_RED(full_result, RESULT_COUNT(full_result)) = RESULT_RED(current_result, i);
+		RESULT_BLUE(full_result, RESULT_COUNT(full_result)) = RESULT_BLUE(current_result, i);
 		RESULT_COUNT(full_result)++;
 	}
 }
 
 
-void print_result(int* result)
+void print_result(int* result, int t)
 {
 	int i;
+	const float tile_block = t * t;
 
 	if (RESULT_COUNT(result) > 0)
 	{
 		printf("Found %d tile(s):\n", RESULT_COUNT(result));
 		for (i = 0; i < RESULT_COUNT(result); i++)
 		{
-			switch (RESULT_COLOR(result, i))
+			printf("Tile No.%d, color: ", RESULT_INDEX(result, i));
+			if(RESULT_RED(result, i) != RESULT_NOT_ENOUGH)
 			{
-			case RED:
-				printf("Tile No.%d, color: red\n", RESULT_INDEX(result, i));
-				break;
-			case BLUE:
-				printf("Tile No.%d, color: blue\n", RESULT_INDEX(result, i));
-				break;
-			case BOTH:
-				printf("Tile No.%d, color: red & blue\n", RESULT_INDEX(result, i));
-				break;
+				printf("red(%.2f%%) ", RESULT_RED(result, i) / tile_block * 100);
 			}
+			if (RESULT_BLUE(result, i) != RESULT_NOT_ENOUGH)
+			{
+				printf("blue(%.2f%%) ", RESULT_BLUE(result, i) / tile_block * 100);
+			}
+
+			printf("\n");
 		}
 	}
 	else
@@ -452,7 +463,7 @@ void sequential_computation(int** board_orig, int n, int t, int c, int max_iters
 		result = count_tiles(board, n, n, t, c);
 	}
 
-	print_result(result);
+	print_result(result, t);
 }
 
 
@@ -625,7 +636,7 @@ int main(int argc, char* argv[])
 
 	if (is_master)
 	{
-		print_result(full_result);
+		print_result(full_result, t);
 
 		// perform a sequential computation
 		sequential_computation(full_chessboard, n, t, max_color_count, max_iters);
