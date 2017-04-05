@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <stdarg.h>
 #include <time.h>
+#include <math.h>
 
 #include <mpi.h>
 
@@ -493,7 +494,7 @@ int main(int argc, char* argv[])
 
 #define tile_count(process) row_count_for_process((num_procs), n, t, process) * n / t / t
 
-	max_color_count = (int)(t * t * c / 100.0f + 0.5f);
+	max_color_count = (int)ceilf(t * t * c / 100.0f);
 	max_tile_count_in_process = tile_count(MASTER_RANK);
 
 	if (is_master)
