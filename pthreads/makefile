@@ -1,5 +1,8 @@
 CC=gcc
 CFLAGS=-I.
+
+LIBS=-lpthread
+
 DEPS = red_blue.h barrier.h
 OBJ = red_blue.o barrier.o 
 
@@ -7,7 +10,7 @@ OBJ = red_blue.o barrier.o
 	$(CC) -c -o $@ $< $(CFLAGS)
 
 red_blue: $(OBJ)
-	gcc -o $@ $^ $(CFLAGS)
+	gcc -o $@ $^ $(CFLAGS) $(LIBS)
 
 .PHONY: clean
 
