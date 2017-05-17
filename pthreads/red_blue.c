@@ -338,6 +338,7 @@ int main(int argc, char *argv[]) {
         // Output results from full_results_paral
         printf("Results from parallism computation:\n");
         print_results(full_results_paral, tile_count, params.t);
+        printf("\n");
 
         // Release data
         free(context);
