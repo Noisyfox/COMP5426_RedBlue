@@ -1,0 +1,16 @@
+CC=gcc
+CFLAGS=-I.
+DEPS = red_blue.h barrier.h
+OBJ = red_blue.o barrier.o 
+
+%.o: %.c $(DEPS)
+	$(CC) -c -o $@ $< $(CFLAGS)
+
+red_blue: $(OBJ)
+	gcc -o $@ $^ $(CFLAGS)
+
+.PHONY: clean
+
+clean:
+	rm -f *.o red_blue
+
