@@ -87,7 +87,7 @@ int row_count_for_process(int process_count, int row_count, int tile_row, int cu
     int row = base * tile_row;
 
     if (current_id < remain) {
-        row += tile_count;
+        row += tile_row;
     }
 
     return row;
