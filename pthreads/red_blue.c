@@ -145,13 +145,16 @@ void do_blue(int **board, int col_start, int col_end, int n) {
 
 
 int
-count_tiles(int **board, int row_start, int row_end, int col_count, int tile_row, double threshold, result_t *result) {
+count_tiles(int **board, int col_start, int col_end, int row_count, int tile_row, double threshold, result_t *result) {
     double c = threshold * tile_row * tile_row;
     int result_count = 0;
-    int tile_index = row_start / tile_row * (col_count / tile_row);
+    int start_index = col_start / tile_row;
+    int tile_per_row = row_count / tile_row;
 
-    for (int i = row_start; i <= row_end; i += tile_row) {
-        for (int j = 0; j < col_count; j += tile_row) {
+    for (int i = 0; i < row_count; i += tile_row) {
+        int tile_index = start_index + i / tile_row * tile_per_row;
+
+        for (int j = col_start; j <= col_end; j += tile_row) {
             int red = 0, blue = 0;
 
             for (int k = 0; k < tile_row; k++) {
@@ -208,7 +211,6 @@ void *process_thread(void *arg) {
         do_red(board, start, end, n);
         barrier_wait(&sync->barrier);
         do_blue(board, start, end, n);
-        barrier_wait(&sync->barrier);
 
         int result_count = count_tiles(board, start, end, n, t, c, sync->full_results); // Calculate results
 
