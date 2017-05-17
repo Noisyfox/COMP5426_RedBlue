@@ -3,7 +3,8 @@
 #include <stdlib.h>
 #include <time.h>
 #include <stdarg.h>
-#include <pthread.h>
+
+#include "red_blue.h"
 
 /*
 white = 0, red = 1, blue = 2,
@@ -16,7 +17,6 @@ red or blue (in the first row or column) just moved out = 4
 #define BLUE 2
 #define IN 3
 #define OUT 4
-
 
 void usage(char const *const message, ...) {
     va_list arg_ptr;
@@ -144,77 +144,59 @@ void do_blue(int **board, int col_start, int col_end, int n) {
 }
 
 
-// Simple Barrier implementation
-typedef struct {
-    int count;
-    int current;
-    unsigned int phase;
-    pthread_mutex_t mutex;
-    pthread_cond_t cond;
-} barrier_t;
+int
+count_tiles(int **board, int row_start, int row_end, int col_count, int tile_row, double threshold, result_t *result) {
+    double c = threshold * tile_row * tile_row;
+    int result_count = 0;
+    int tile_index = row_start / tile_row * (col_count / tile_row);
 
-void barrier_init(barrier_t *barrier, int count) {
-    barrier->count = count;
-    barrier->current = 0;
-    barrier->phase = 0;
+    for (int i = row_start; i <= row_end; i += tile_row) {
+        for (int j = 0; j < col_count; j += tile_row) {
+            int red = 0, blue = 0;
 
-    pthread_mutex_init(&barrier->mutex, NULL);
-    pthread_cond_init(&barrier->cond, NULL);
-}
+            for (int k = 0; k < tile_row; k++) {
+                for (int l = 0; l < tile_row; l++) {
+                    switch (board[i + k][j + l]) {
+                        case RED:
+                            red++;
+                            break;
+                        case BLUE:
+                            blue++;
+                            break;
+                    }
+                }
+            }
 
-void barrier_destroy(barrier_t *barrier) {
-    pthread_mutex_destroy(&barrier->mutex);
-    pthread_cond_destroy(&barrier->cond);
-}
+            if (red < c) {
+                red = RESULT_COLOR_INSUFFICIENT;
+            }
 
-void barrier_wait(barrier_t *barrier) {
-    pthread_mutex_lock(&barrier->mutex);
+            if (blue < c) {
+                blue = RESULT_COLOR_INSUFFICIENT;
+            }
 
-    barrier->current++;
-    if (barrier->current >= barrier->count) {
-        barrier->phase++;
-        barrier->current = 0;
-        pthread_cond_broadcast(&barrier->cond);
-    } else {
-        unsigned int phase = barrier->phase;
-        do {
-            pthread_cond_wait(&barrier->cond, &barrier->mutex);
-        } while (phase != barrier->phase);
+            if (red != RESULT_COLOR_INSUFFICIENT || blue != RESULT_COLOR_INSUFFICIENT) {
+                result[tile_index].red = red;
+                result[tile_index].blue = blue;
+
+                result_count++;
+            }
+
+            tile_index++;
+        }
     }
 
-    pthread_mutex_unlock(&barrier->mutex);
+    return result_count;
 }
-
-// User defined parameters
-typedef struct {
-    int n, t, max_iters;
-    int p;
-    double c;
-} parameters;
-
-typedef struct {
-    barrier_t barrier;
-} thread_sync;
-
-typedef struct {
-    thread_sync *sync;
-    parameters *params;
-
-    int id;
-    int **board;
-    int start;
-    int end;
-} thread_context;
-
 
 void *process_thread(void *arg) {
     thread_context *ctx = (thread_context *) arg;
     parameters *params = ctx->params;
+    thread_sync *sync = ctx->sync;
 
     int n = params->n;
     int t = params->t;
     int max_iters = params->max_iters;
-    int p = params->p;
     double c = params->c;
 
     int **board = ctx->board;
@@ -222,15 +204,53 @@ void *process_thread(void *arg) {
     int end = ctx->end;
 
     int iter_count = 0;
-    while (iter_count++ <= max_iters) {
+    do {
         do_red(board, start, end, n);
-        barrier_wait(&ctx->sync->barrier);
+        barrier_wait(&sync->barrier);
         do_blue(board, start, end, n);
+        barrier_wait(&sync->barrier);
 
-        // TODO: Check result
-    }
+        int result_count = count_tiles(board, start, end, n, t, c, sync->full_results); // Calculate results
+
+        pthread_mutex_lock(&sync->mutex);
+        sync->result_count += result_count; // Merge result
+        pthread_mutex_unlock(&sync->mutex);
+        barrier_wait(&sync->barrier);
+    } while (iter_count++ <= max_iters && sync->result_count == 0);
 
     return NULL;
+}
+
+
+void print_results(result_t *results, int total, int t) {
+    const float tile_block = t * t;
+
+    int has_result = 0;
+
+    for (int i = 0; i < total; i++) {
+        int red = results[i].red;
+        int blue = results[i].blue;
+
+        if (red != RESULT_COLOR_INSUFFICIENT || blue != RESULT_COLOR_INSUFFICIENT) {
+            has_result = 1;
+
+            printf("Tile No.%d, color: ", i);
+
+            if (red != RESULT_COLOR_INSUFFICIENT) {
+                printf("red(%.2f%%) ", red / tile_block * 100);
+            }
+
+            if (blue != RESULT_COLOR_INSUFFICIENT) {
+                printf("blue(%.2f%%) ", blue / tile_block * 100);
+            }
+
+            printf("\n");
+        }
+    }
+
+    if (!has_result) {
+        printf("max_iters exceed! No result found!\n");
+    }
 }
 
 
@@ -266,6 +286,10 @@ int main(int argc, char *argv[]) {
 
     int **board = board_init(params.n); // Create a random board
 
+    int tile_count = params.n * params.n / params.t / params.t;
+
+    result_t *full_results_paral = NULL;
+
     if (params.p > 1) {
         // Multi-threading computation
         int **board_copy = create_board(params.n);
@@ -275,9 +299,17 @@ int main(int argc, char *argv[]) {
         thread_sync sync;
         thread_context *context = malloc(params.p * sizeof(thread_context));
         pthread_t *threads = malloc((params.p - 1) * sizeof(pthread_t));
+        full_results_paral = malloc(tile_count * sizeof(result_t));
+        for (int i = 0; i < tile_count; i++) {
+            full_results_paral[i].red = RESULT_COLOR_INSUFFICIENT;
+            full_results_paral[i].blue = RESULT_COLOR_INSUFFICIENT;
+        }
+        sync.result_count = 0;
+        sync.full_results = full_results_paral;
 
         // Init thread contexts
         barrier_init(&sync.barrier, params.p);
+        pthread_mutex_init(&sync.mutex, NULL);
         int rp = 0;
         for (int i = 0; i < params.p; i++) {
             thread_context *ctx = &context[i];
@@ -301,25 +333,61 @@ int main(int argc, char *argv[]) {
             pthread_join(threads[i], NULL);
         }
 
-        // TODO: Read result from thread_sync
+        // Output results from full_results_paral
+        printf("Results from parallism computation:\n");
+        print_results(full_results_paral, tile_count, params.t);
 
         // Release data
         free(context);
         free(threads);
         free(board_copy);
         barrier_destroy(&sync.barrier);
+        pthread_mutex_destroy(&sync.mutex);
     }
 
     // Serial computation
+    result_t *full_results_seq = malloc(tile_count * sizeof(result_t));
+    for (int i = 0; i < tile_count; i++) {
+        full_results_seq[i].red = RESULT_COLOR_INSUFFICIENT;
+        full_results_seq[i].blue = RESULT_COLOR_INSUFFICIENT;
+    }
+
     int iter_count = 0;
     while (iter_count++ <= params.max_iters) {
         do_red(board, 0, params.n - 1, params.n);
         do_blue(board, 0, params.n - 1, params.n);
 
-        // TODO: Check result
+        // Calculate results
+        if (count_tiles(board, 0, params.n - 1, params.n, params.t, params.c, full_results_seq) > 0) {
+            break;
+        }
+    }
+    printf("Results from serial computation:\n");
+    print_results(full_results_seq, tile_count, params.t);
+
+    if (full_results_paral) {
+        // Compare results
+        printf("\n");
+        printf("Checking results...\n");
+        int diff = 0;
+        for (int i = 0; i < tile_count; i++) {
+            if (full_results_seq[i].red != full_results_paral[i].red ||
+                full_results_seq[i].blue != full_results_paral[i].blue) {
+
+                diff = 1;
+
+                printf("Tile %d is different!\n", i);
+            }
+        }
+        if (!diff) {
+            printf("All correct!\n");
+        }
+
+        free(full_results_paral);
     }
 
     free(board);
+    free(full_results_seq);
 
     _exit:
     return 0;
